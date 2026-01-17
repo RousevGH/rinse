@@ -11,12 +11,12 @@ rinse is a lightweight terminal tool that wraps pacman and yay.
 ### Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/RousevGH/rinse/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/rousevv/rinse/main/install.sh | bash
 ```
 
 Or manually:
 ```bash
-git clone https://github.com/RousevGH/rinse.git
+git clone https://github.com/rousevv/rinse.git
 cd rinse
 g++ -std=c++17 -O3 rinse.cpp -o rinse
 sudo cp rinse /usr/local/bin/
@@ -569,7 +569,7 @@ rinse check dev                # Find all dev packages
 
 ## 🤝 Contributing
 
-Found a bug? Want a feature? Open an issue or PR on [GitHub](https://github.com/RousevGH/rinse).
+Found a bug? Want a feature? Open an issue or PR on [GitHub](https://github.com/rousevv/rinse).
 
 ---
 
