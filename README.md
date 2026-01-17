@@ -2,7 +2,7 @@
 
 > Fast CLI frontend for pacman and AUR - Arch Linux package management made simple.
 
-rinse is a lightweight, production-ready terminal tool that wraps pacman and yay into a cleaner, faster workflow. No GUI, no TUI, just a smart CLI that gets out of your way.
+rinse is a lightweight terminal tool that wraps pacman and yay.
 
 ---
 
