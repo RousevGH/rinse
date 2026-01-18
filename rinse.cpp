@@ -48,6 +48,97 @@ std::string trim(const std::string& str) {
     return str.substr(first, last - first + 1);
 }
 
+std::string sanitize_package(const std::string& input) {
+    if (input.empty()) return "";
+    
+    std::string sanitized;
+    sanitized.reserve(input.length());
+    
+    for (char c : input) {
+        // Package names: alphanumeric, hyphens, underscores, dots, plus signs, forward slashes (for repo/pkg format)
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '+' || c == '/') {
+            sanitized += c;
+        }
+        // Remove all shell metacharacters and other dangerous characters
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+                 c == '"' || c == '\'' || c == ' ' || c == '!') {
+            continue;
+        }
+    }
+    
+    return sanitized;
+}
+
+std::string sanitize_path(const std::string& input) {
+    if (input.empty()) return "";
+    
+    std::string sanitized;
+    sanitized.reserve(input.length());
+    
+    for (char c : input) {
+        // Paths: alphanumeric, forward slashes, dots, hyphens, underscores
+        // Allow spaces but be careful - they need to be handled in shell commands
+        if (std::isalnum(c) || c == '/' || c == '.' || c == '-' || c == '_' || c == ' ') {
+            sanitized += c;
+        }
+        // Remove all shell metacharacters and other dangerous characters
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+                 c == '"' || c == '\'' || c == '!' || c == '+' || c == '*') {
+            continue;
+        }
+    }
+    
+    return sanitized;
+}
+
+std::string sanitize_message(const std::string& input) {
+    if (input.empty()) return "";
+    
+    std::string sanitized;
+    sanitized.reserve(input.length() * 2);
+    
+    for (char c : input) {
+        // Messages: allow most printable characters but escape shell metacharacters
+        if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
+            c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+            c == '"' || c == '\'') {
+            // Remove dangerous shell metacharacters
+            continue;
+        }
+        else {
+            sanitized += c;
+        }
+    }
+    
+    return sanitized;
+}
+
+std::string sanitize_config(const std::string& input) {
+    if (input.empty()) return "";
+    
+    std::string sanitized;
+    sanitized.reserve(input.length());
+    
+    for (char c : input) {
+        // Config values: alphanumeric, hyphens, underscores, dots, spaces
+        // For branch names: main, experimental, etc.
+        // For time values: 6m, 1y, 30d, etc.
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == ' ') {
+            sanitized += c;
+        }
+        // Remove all shell metacharacters and other dangerous characters
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+                 c == '"' || c == '\'' || c == '/' || c == '+' || c == '!') {
+            continue;
+        }
+    }
+    
+    return sanitized;
+}
+
 std::string exec(const std::string& cmd) {
     std::string result;
     FILE* pipe = popen(cmd.c_str(), "r");
@@ -75,7 +166,7 @@ std::string get_home() {
 
 void send_notification(const std::string& msg) {
     if (g_config.notify && check_command("notify-send")) {
-        exec_status("notify-send 'rinse' '" + msg + "' 2>/dev/null");
+        exec_status("notify-send 'rinse' '" + sanitize_message(msg) + "' 2>/dev/null");
     }
 }
 
@@ -165,19 +256,19 @@ void load_config() {
             if (key == "keep_build") g_config.keep_build = (val == "true");
             else if (key == "notify") g_config.notify = (val == "true");
             else if (key == "auto_update") g_config.auto_update = (val == "true");
-            else if (key == "update_branch") g_config.update_branch = val;
-            else if (key == "outdated_time") g_config.outdated_time = val;
+            else if (key == "update_branch") g_config.update_branch = sanitize_config(val);
+            else if (key == "outdated_time") g_config.outdated_time = sanitize_config(val);
         }
     }
 }
 
 std::string get_package_date_pacman(const std::string& pkg) {
-    std::string cmd = "pacman -Si " + pkg + " 2>/dev/null | grep 'Build Date' | cut -d: -f2-";
+    std::string cmd = "pacman -Si " + sanitize_package(pkg) + " 2>/dev/null | grep 'Build Date' | cut -d: -f2-";
     return trim(exec(cmd));
 }
 
 std::string get_package_date_aur(const std::string& pkg) {
-    std::string cmd = "curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + pkg + 
+    std::string cmd = "curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) + 
                      "' | grep -o '\"LastModified\":[0-9]*' | cut -d: -f2";
     std::string result = exec(cmd);
     if (!result.empty()) {
@@ -190,15 +281,15 @@ std::string get_package_date_aur(const std::string& pkg) {
 }
 
 bool is_installed(const std::string& pkg) {
-    return exec_status("pacman -Q " + pkg + " >/dev/null 2>&1") == 0;
+    return exec_status("pacman -Q " + sanitize_package(pkg) + " >/dev/null 2>&1") == 0;
 }
 
 bool is_outdated(const std::string& pkg) {
-    return exec_status("pacman -Qu 2>/dev/null | grep -q '^" + pkg + " '") == 0;
+    return exec_status("pacman -Qu 2>/dev/null | grep -q '^" + sanitize_package(pkg) + " '") == 0;
 }
 
 bool package_in_pacman(const std::string& pkg) {
-    return exec_status("pacman -Si " + pkg + " >/dev/null 2>&1") == 0;
+    return exec_status("pacman -Si " + sanitize_package(pkg) + " >/dev/null 2>&1") == 0;
 }
 
 std::string fuzzy_search_package(const std::string& query) {
@@ -231,8 +322,37 @@ std::string fuzzy_search_package(const std::string& query) {
 }
 
 bool package_in_aur(const std::string& pkg) {
-    return exec_status("curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + pkg + 
+    return exec_status("curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) + 
                       "' | grep -q '\"resultcount\":1'") == 0;
+}
+
+bool check_flatpak() {
+    return check_command("flatpak");
+}
+
+bool package_in_flatpak(const std::string& pkg) {
+    if (!check_flatpak()) return false;
+    std::string result = exec("flatpak search " + sanitize_package(pkg) + " 2>/dev/null | head -1");
+    return !result.empty() && result.find("No matches") == std::string::npos && result.find("Application") == std::string::npos;
+}
+
+std::string search_flatpak(const std::string& pkg) {
+    if (!check_flatpak()) return "";
+    std::string result = exec("flatpak search " + sanitize_package(pkg) + " 2>/dev/null | head -5");
+    return result;
+}
+
+std::string get_flatpak_package_id(const std::string& pkg) {
+    if (!check_flatpak()) return "";
+    std::string result = exec("flatpak search " + sanitize_package(pkg) + " 2>/dev/null | head -2 | tail -1");
+    if (result.empty() || result.find("No matches") != std::string::npos) return "";
+    
+    // Extract the package ID (first column, typically format: org.example.App)
+    std::istringstream iss(result);
+    std::string package_id;
+    iss >> package_id;
+    // Sanitize the package ID before returning it
+    return sanitize_package(package_id);
 }
 
 bool confirm(const std::string& prompt, bool default_yes = true) {
@@ -368,7 +488,7 @@ void ensure_yay() {
 }
 
 void install_packages(const std::vector<std::string>& pkgs) {
-    std::vector<std::string> pacman_pkgs, aur_pkgs, not_found;
+    std::vector<std::string> pacman_pkgs, aur_pkgs, flatpak_pkgs, not_found;
     
     for (const auto& pkg : pkgs) {
         bool installed = is_installed(pkg);
@@ -422,7 +542,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
                          << "\" is already installed." << RESET << std::endl;
             } else {
                 // Check pacman repos for fuzzy match
-                std::string search_result = exec("pacman -Ss '^" + pkg + "' 2>/dev/null | head -1");
+                std::string search_result = exec("pacman -Ss '^" + sanitize_package(pkg) + "' 2>/dev/null | head -1");
                 if (!search_result.empty()) {
                     std::string suggested = search_result.substr(0, search_result.find(' '));
                     if (suggested.find('/') != std::string::npos) {
@@ -434,21 +554,36 @@ void install_packages(const std::vector<std::string>& pkgs) {
                         pacman_pkgs.push_back(suggested);
                     }
                 } else {
-                    not_found.push_back(pkg);
+                    // Package not found in pacman or AUR, prompt for Flatpak search
+                    std::cout << YELLOW << "Package \"" << pkg << "\" not found on pacman or the AUR." << RESET << std::endl;
+                    if (confirm("Search on Flatpak?", true)) {
+                        if (check_flatpak()) {
+                            std::string flatpak_results = search_flatpak(pkg);
+                            if (!flatpak_results.empty() && flatpak_results.find("No matches") == std::string::npos && 
+                                flatpak_results.find("Application") == std::string::npos) {
+                                std::cout << CYAN << "Found on Flatpak:" << RESET << std::endl;
+                                std::cout << flatpak_results << std::endl;
+                                std::string flatpak_id = get_flatpak_package_id(pkg);
+                                if (!flatpak_id.empty() && confirm("Install from Flatpak? (package id: " + flatpak_id + ") [Y/n]", true)) {
+                                    flatpak_pkgs.push_back(flatpak_id);
+                                }
+                            } else {
+                                std::cout << RED << "Package \"" << pkg << "\" not found on Flatpak either." << RESET << std::endl;
+                                std::cout << "If the package is a .tar.gz file you want to install, run \"rinse <path/to/file>\"" << std::endl;
+                            }
+                        } else {
+                            std::cout << YELLOW << "Flatpak is not installed. Install it first with: rinse flatpak" << RESET << std::endl;
+                        }
+                    }
                 }
             }
         }
     }
     
-    for (const auto& pkg : not_found) {
-        std::cout << RED << "Package \"" << pkg << "\" not found on pacman or the AUR." << RESET << std::endl;
-        std::cout << "If the package is a .tar.gz file you want to install, run \"rinse <path/to/file>\"" << std::endl;
-    }
-    
     if (!pacman_pkgs.empty()) {
         std::cout << CYAN << "\nInstalling from official repos..." << RESET << std::endl;
         std::string cmd = "sudo pacman -S --noconfirm";
-        for (const auto& pkg : pacman_pkgs) cmd += " " + pkg;
+        for (const auto& pkg : pacman_pkgs) cmd += " " + sanitize_package(pkg);
         show_progress(cmd, "Installing");
     }
     
@@ -456,11 +591,28 @@ void install_packages(const std::vector<std::string>& pkgs) {
         ensure_yay();
         std::cout << CYAN << "\nInstalling from AUR..." << RESET << std::endl;
         std::string cmd = "yay -S --noconfirm";
-        for (const auto& pkg : aur_pkgs) cmd += " " + pkg;
+        for (const auto& pkg : aur_pkgs) cmd += " " + sanitize_package(pkg);
         show_progress(cmd, "Installing");
     }
     
-    if (!pacman_pkgs.empty() || !aur_pkgs.empty()) {
+    if (!flatpak_pkgs.empty()) {
+        if (!check_flatpak()) {
+            std::cout << YELLOW << "\nFlatpak is not installed. Installing flatpak first..." << RESET << std::endl;
+            if (confirm("Install flatpak?", true)) {
+                show_progress("sudo pacman -S --noconfirm flatpak", "Installing");
+            } else {
+                std::cout << RED << "Cannot install Flatpak packages without flatpak" << RESET << std::endl;
+                return;
+            }
+        }
+        std::cout << CYAN << "\nInstalling from Flatpak..." << RESET << std::endl;
+        for (const auto& pkg : flatpak_pkgs) {
+            std::string cmd = "flatpak install -y flathub " + sanitize_package(pkg);
+            show_progress(cmd, "Installing");
+        }
+    }
+    
+    if (!pacman_pkgs.empty() || !aur_pkgs.empty() || !flatpak_pkgs.empty()) {
         std::cout << GREEN << "\n✓ Installation complete" << RESET << std::endl;
         send_notification("Package installation complete");
     }
@@ -506,7 +658,7 @@ void remove_package(const std::vector<std::string>& pkgs) {
     std::string cmd = "sudo pacman -R";
     if (remove_orphans) cmd += "ns";
     cmd += " --noconfirm";
-    for (const auto& pkg : to_remove) cmd += " " + pkg;
+    for (const auto& pkg : to_remove) cmd += " " + sanitize_package(pkg);
     
     show_progress(cmd, "Removing");
 }
@@ -522,8 +674,8 @@ void update_rinse() {
     std::cout << CYAN << "Checking for rinse updates..." << RESET << std::endl;
     
     std::string temp_dir = "/tmp/rinse-update-" + std::to_string(time(nullptr));
-    std::string branch = g_config.update_branch;
-    std::string clone_cmd = "git clone --depth 1 --branch " + branch + " https://github.com/Rousevv/rinse " + temp_dir + " >/dev/null 2>&1";
+    std::string branch = sanitize_config(g_config.update_branch);
+    std::string clone_cmd = "git clone --depth 1 --branch " + branch + " https://github.com/Rousevv/rinse " + sanitize_path(temp_dir) + " >/dev/null 2>&1";
     
     if (exec_status(clone_cmd) != 0) return;
     
@@ -531,26 +683,26 @@ void update_rinse() {
     if (fs::exists(temp_dir + "/rinse_latest.cpp")) source_file = temp_dir + "/rinse_latest.cpp";
     else if (fs::exists(temp_dir + "/rinse.cpp")) source_file = temp_dir + "/rinse.cpp";
     else {
-        exec_status(("rm -rf " + temp_dir).c_str());
+        exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
         return;
     }
     
-    if (exec_status("g++ -std=c++17 -O3 " + source_file + " -o " + temp_dir + "/rinse 2>/dev/null") != 0) {
-        exec_status(("rm -rf " + temp_dir).c_str());
+    if (exec_status("g++ -std=c++17 -O3 " + sanitize_path(source_file) + " -o " + sanitize_path(temp_dir) + "/rinse 2>/dev/null") != 0) {
+        exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
         return;
     }
     
-    std::string old_hash = trim(exec("md5sum " + rinse_path + " 2>/dev/null | cut -d' ' -f1"));
-    std::string new_hash = trim(exec("md5sum " + temp_dir + "/rinse 2>/dev/null | cut -d' ' -f1"));
+    std::string old_hash = trim(exec("md5sum " + sanitize_path(rinse_path) + " 2>/dev/null | cut -d' ' -f1"));
+    std::string new_hash = trim(exec("md5sum " + sanitize_path(temp_dir) + "/rinse 2>/dev/null | cut -d' ' -f1"));
     
     if (old_hash == new_hash) {
         std::cout << GREEN << "✓ rinse is up to date" << RESET << std::endl;
-        exec_status(("rm -rf " + temp_dir).c_str());
+        exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
         return;
     }
     
     if (!g_dry_run && confirm("rinse update available. Install?", true)) {
-        if (exec_status(("sudo cp " + temp_dir + "/rinse " + rinse_path + " && sudo chmod +x " + rinse_path).c_str()) == 0) {
+        if (exec_status(("sudo cp " + sanitize_path(temp_dir) + "/rinse " + sanitize_path(rinse_path) + " && sudo chmod +x " + sanitize_path(rinse_path)).c_str()) == 0) {
             std::cout << GREEN << "✓ rinse updated successfully" << RESET << std::endl;
             send_notification("rinse updated to latest version");
         } else {
@@ -560,7 +712,7 @@ void update_rinse() {
         std::cout << YELLOW << "[DRY RUN] Would update rinse" << RESET << std::endl;
     }
     
-    exec_status(("rm -rf " + temp_dir).c_str());
+    exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
 }
 
 void update_system() {
@@ -677,10 +829,10 @@ void install_file(const std::string& filepath) {
     if (!confirm("Installing from " + abs_path, true)) return;
     
     if (path.extension() == ".zst" || path.string().find(".pkg.tar") != std::string::npos) {
-        show_progress("sudo pacman -U " + abs_path, "Installing");
+        show_progress("sudo pacman -U " + sanitize_path(abs_path), "Installing");
         std::cout << GREEN << "✓ Installation complete" << RESET << std::endl;
     } else if (path.extension() == ".gz" && path.string().find(".tar.gz") != std::string::npos) {
-        std::string name = path.stem().stem().string();
+        std::string name = sanitize_path(path.stem().stem().string());
         std::string temp_dir = "/tmp/rinse-build-" + name;
         
         if (g_dry_run) {
@@ -690,13 +842,13 @@ void install_file(const std::string& filepath) {
         
         std::cout << CYAN << "Extracting source archive..." << RESET << std::endl;
         
-        if (exec_status(("mkdir -p " + temp_dir + " && tar -xzf " + abs_path + " -C " + temp_dir).c_str()) != 0) {
+        if (exec_status(("mkdir -p " + sanitize_path(temp_dir) + " && tar -xzf " + sanitize_path(abs_path) + " -C " + sanitize_path(temp_dir)).c_str()) != 0) {
             std::cerr << RED << "✗ Failed to extract archive" << RESET << std::endl;
             return;
         }
         
         std::string source_dir = temp_dir;
-        std::string found_dir = trim(exec("find " + temp_dir + " -maxdepth 1 -type d | tail -1"));
+        std::string found_dir = trim(exec("find " + sanitize_path(temp_dir) + " -maxdepth 1 -type d | tail -1"));
         if (!found_dir.empty() && found_dir != temp_dir) {
             source_dir = found_dir;
         }
@@ -708,12 +860,12 @@ void install_file(const std::string& filepath) {
         
         if (fs::exists(source_dir + "/CMakeLists.txt")) {
             std::cout << CYAN << "Detected CMake project" << RESET << std::endl;
-            std::string cmake_cmd = "cd " + source_dir + " && mkdir -p build && cd build && cmake .. && make -j$(nproc)";
+            std::string cmake_cmd = "cd " + sanitize_path(source_dir) + " && mkdir -p build && cd build && cmake .. && make -j$(nproc)";
             built = (exec_status((g_full_log ? cmake_cmd : cmake_cmd + " > /dev/null 2>&1").c_str()) == 0);
             
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
-                if (exec_status(("cd " + source_dir + "/build && sudo make install").c_str()) == 0) {
+                if (exec_status(("cd " + sanitize_path(source_dir) + "/build && sudo make install").c_str()) == 0) {
                     std::cout << GREEN << "✓ Installation complete" << RESET << std::endl;
                 } else {
                     std::cout << YELLOW << "Build succeeded but install failed" << RESET << std::endl;
@@ -721,29 +873,29 @@ void install_file(const std::string& filepath) {
             }
         } else if (fs::exists(source_dir + "/configure")) {
             std::cout << CYAN << "Detected autotools project" << RESET << std::endl;
-            std::string build_cmd = "cd " + source_dir + " && ./configure && make -j$(nproc)";
+            std::string build_cmd = "cd " + sanitize_path(source_dir) + " && ./configure && make -j$(nproc)";
             built = (exec_status((g_full_log ? build_cmd : build_cmd + " > /dev/null 2>&1").c_str()) == 0);
             
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
-                if (exec_status(("cd " + source_dir + " && sudo make install").c_str()) == 0) {
+                if (exec_status(("cd " + sanitize_path(source_dir) + " && sudo make install").c_str()) == 0) {
                     std::cout << GREEN << "✓ Installation complete" << RESET << std::endl;
                 }
             }
         } else if (fs::exists(source_dir + "/Makefile") || fs::exists(source_dir + "/makefile")) {
             std::cout << CYAN << "Detected Makefile project" << RESET << std::endl;
-            std::string build_cmd = "cd " + source_dir + " && make -j$(nproc)";
+            std::string build_cmd = "cd " + sanitize_path(source_dir) + " && make -j$(nproc)";
             built = (exec_status((g_full_log ? build_cmd : build_cmd + " > /dev/null 2>&1").c_str()) == 0);
             
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
-                exec_status(("cd " + source_dir + " && sudo make install").c_str());
+                exec_status(("cd " + sanitize_path(source_dir) + " && sudo make install").c_str());
                 std::cout << GREEN << "✓ Installation complete" << RESET << std::endl;
             }
         } else {
             std::string dest = "/opt/" + name;
             std::cout << YELLOW << "No build system detected. Extracting to " << dest << RESET << std::endl;
-            if (exec_status(("sudo mkdir -p " + dest + " && sudo cp -r " + source_dir + "/* " + dest).c_str()) == 0) {
+            if (exec_status(("sudo mkdir -p " + sanitize_path(dest) + " && sudo cp -r " + sanitize_path(source_dir) + "/* " + sanitize_path(dest)).c_str()) == 0) {
                 std::cout << GREEN << "✓ Extracted to " << dest << RESET << std::endl;
             }
         }
@@ -755,7 +907,7 @@ void install_file(const std::string& filepath) {
         }
         
         if (!g_keep && !g_config.keep_build) {
-            exec_status(("rm -rf " + temp_dir).c_str());
+            exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
         } else {
             std::cout << CYAN << "Build files kept in: " << temp_dir << RESET << std::endl;
         }
@@ -918,7 +1070,7 @@ int main(int argc, char* argv[]) {
         } else if (arg == "-y" || arg == "--yes") {
             g_auto_confirm = true;
         } else if (arg == "--time" && i + 1 < argc) {
-            time_override = argv[++i];
+            time_override = sanitize_config(argv[++i]);
         } else if (arg == "--help" || arg == "-h" || arg == "-help" || arg == "--h" || arg == "help") {
             print_help();
             return 0;
