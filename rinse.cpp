@@ -1,5 +1,4 @@
 // rinse - Fast CLI frontend for pacman and AUR
-// License: GPL-3.0
 // Compile: g++ -std=c++17 -O3 rinse.cpp -o rinse
 
 #include <iostream>
@@ -339,12 +338,12 @@ void update_rinse() {
     std::string rinse_path = trim(exec("command -v rinse 2>/dev/null"));
     if (rinse_path.empty()) return;
     
-    if (exec("git -C /tmp ls-remote https://github.com/RousevGH/rinse 2>/dev/null").empty()) return;
+    if (exec("git -C /tmp ls-remote https://github.com/Rousevv/rinse 2>/dev/null").empty()) return;
     
     std::cout << CYAN << "Checking for rinse updates..." << RESET << std::endl;
     
     std::string temp_dir = "/tmp/rinse-update-" + std::to_string(time(nullptr));
-    if (exec_status("git clone --depth 1 https://github.com/RousevGH/rinse " + temp_dir + " >/dev/null 2>&1") != 0) return;
+    if (exec_status("git clone --depth 1 https://github.com/Rousevv/rinse " + temp_dir + " >/dev/null 2>&1") != 0) return;
     
     std::string source_file;
     if (fs::exists(temp_dir + "/rinse_latest.cpp")) source_file = temp_dir + "/rinse_latest.cpp";
@@ -694,7 +693,7 @@ void print_help() {
     std::cout << "  • Desktop notifications sent when notify=true in config\n\n";
     
     std::cout << BOLD << "SOURCE & ISSUES:\n" << RESET;
-    std::cout << "  GitHub: " << CYAN << "https://github.com/RousevGH/rinse" << RESET << "\n";
+    std::cout << "  GitHub: " << CYAN << "https://github.com/Rousevv/rinse" << RESET << "\n";
 }
 
 int main(int argc, char* argv[]) {
