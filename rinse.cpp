@@ -196,21 +196,19 @@ bool confirm(const std::string& prompt, bool default_yes = true) {
 int get_terminal_width() {
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-    return w.ws_col > 0 ? w.ws_col : 80;
+    int width = w.ws_col > 0 ? w.ws_col : 80;
+    return std::min(width, 120); // Cap at 120 chars
 }
 
 void draw_progress_bar(int percent) {
     int width = get_terminal_width();
-    int bar_width = width - 10; // Leave space for percentage
+    int bar_width = width - 10;
     
     if (bar_width < 20) bar_width = 20;
     
     std::string percent_str = std::to_string(percent) + "%";
     int filled = (percent * bar_width) / 100;
-    int empty = bar_width - filled;
     
-    // Calculate center position for percentage
-    int total_content = filled + percent_str.length() + empty;
     int center_pos = bar_width / 2 - percent_str.length() / 2;
     
     std::cout << "\r[";
@@ -239,18 +237,15 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
         return;
     }
     
-    // Run command in background with progress animation
     std::atomic<bool> done(false);
     std::atomic<int> exit_code(0);
     
-    // Thread to run the actual command
     std::thread worker([&]() {
         std::string silent_cmd = cmd + " > /dev/null 2>&1";
         exit_code = system(silent_cmd.c_str());
         done = true;
     });
     
-    // Animate progress bar
     int percent = 0;
     auto start = std::chrono::steady_clock::now();
     
@@ -258,18 +253,17 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
         
-        // Simulate progress (slower as it approaches 99%)
-        if (elapsed < 30000) { // First 30 seconds
-            percent = std::min(99, (int)(elapsed / 300));
+        // Faster progress: reach 95% in ~10 seconds
+        if (elapsed < 10000) {
+            percent = std::min(95, (int)(elapsed * 95 / 10000));
         } else {
-            percent = 99; // Stay at 99% until actually done
+            percent = 95;
         }
         
         draw_progress_bar(percent);
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     
-    // Show 100% when complete
     draw_progress_bar(100);
     std::cout << std::endl;
     
@@ -280,6 +274,12 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
         std::cout << "Running with output for debugging:" << std::endl;
         system(cmd.c_str());
     }
+}
+
+void show_update_progress(int current, int total) {
+    if (total == 0) return;
+    int percent = (current * 100) / total;
+    draw_progress_bar(percent);
 }
 
 void ensure_yay() {
@@ -473,11 +473,47 @@ void update_system() {
     if (!confirm("Update all?", true)) return;
     
     std::cout << CYAN << "\nUpdating official packages..." << RESET << std::endl;
-    show_progress("sudo pacman -Syu --noconfirm", "Updating");
+    
+    if (g_dry_run) {
+        std::cout << YELLOW << "[DRY RUN] Would update packages" << RESET << std::endl;
+    } else if (g_full_log) {
+        system("sudo pacman -Syu --noconfirm");
+    } else {
+        // Real progress tracking for updates
+        int total = pkgs.size();
+        int current = 0;
+        
+        std::atomic<bool> done(false);
+        
+        std::thread worker([&]() {
+            system("sudo pacman -Syu --noconfirm > /dev/null 2>&1");
+            done = true;
+        });
+        
+        while (!done) {
+            // Estimate progress
+            if (current < total) {
+                current++;
+                show_update_progress(current, total);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        
+        show_update_progress(total, total);
+        std::cout << std::endl;
+        worker.join();
+    }
     
     if (check_command("yay")) {
         std::cout << CYAN << "Updating AUR packages..." << RESET << std::endl;
-        show_progress("yay -Syu --noconfirm", "Updating");
+        if (!g_dry_run) {
+            if (g_full_log) {
+                system("yay -Syu --noconfirm");
+            } else {
+                system("yay -Syu --noconfirm > /dev/null 2>&1");
+                std::cout << GREEN << "✓ AUR packages updated" << RESET << std::endl;
+            }
+        }
     }
     
     std::cout << GREEN << "\n✓ Update complete" << RESET << std::endl;
