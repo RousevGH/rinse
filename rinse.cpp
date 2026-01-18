@@ -804,7 +804,7 @@ void show_outdated(const std::string& time_val) {
 
 void print_help() {
     std::cout << BOLD << "rinse" << RESET << " - Fast CLI frontend for pacman and AUR\n";
-    std::cout << CYAN << "Version 1.0" << RESET << "\n\n";
+    std::cout << CYAN << "Version 0.2.0" << RESET << "\n\n";
     
     std::cout << BOLD << "USAGE:\n" << RESET;
     std::cout << "  rinse <package>...           Install one or more packages\n";
