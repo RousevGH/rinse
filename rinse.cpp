@@ -50,32 +50,32 @@ std::string trim(const std::string& str) {
 
 std::string sanitize_package(const std::string& input) {
     if (input.empty()) return "";
-    
+
     std::string sanitized;
     sanitized.reserve(input.length());
-    
+
     for (char c : input) {
         // Package names: alphanumeric, hyphens, underscores, dots, plus signs, forward slashes (for repo/pkg format)
         if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '+' || c == '/') {
             sanitized += c;
         }
         // Remove all shell metacharacters and other dangerous characters
-        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
-                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' ||
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' ||
                  c == '"' || c == '\'' || c == ' ' || c == '!') {
             continue;
         }
     }
-    
+
     return sanitized;
 }
 
 std::string sanitize_path(const std::string& input) {
     if (input.empty()) return "";
-    
+
     std::string sanitized;
     sanitized.reserve(input.length());
-    
+
     for (char c : input) {
         // Paths: alphanumeric, forward slashes, dots, hyphens, underscores
         // Allow spaces but be careful - they need to be handled in shell commands
@@ -83,26 +83,26 @@ std::string sanitize_path(const std::string& input) {
             sanitized += c;
         }
         // Remove all shell metacharacters and other dangerous characters
-        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
-                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' ||
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' ||
                  c == '"' || c == '\'' || c == '!' || c == '+' || c == '*') {
             continue;
         }
     }
-    
+
     return sanitized;
 }
 
 std::string sanitize_message(const std::string& input) {
     if (input.empty()) return "";
-    
+
     std::string sanitized;
     sanitized.reserve(input.length() * 2);
-    
+
     for (char c : input) {
         // Messages: allow most printable characters but escape shell metacharacters
-        if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
-            c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+        if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' ||
+            c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' ||
             c == '"' || c == '\'') {
             // Remove dangerous shell metacharacters
             continue;
@@ -111,16 +111,16 @@ std::string sanitize_message(const std::string& input) {
             sanitized += c;
         }
     }
-    
+
     return sanitized;
 }
 
 std::string sanitize_config(const std::string& input) {
     if (input.empty()) return "";
-    
+
     std::string sanitized;
     sanitized.reserve(input.length());
-    
+
     for (char c : input) {
         // Config values: alphanumeric, hyphens, underscores, dots, spaces
         // For branch names: main, experimental, etc.
@@ -129,13 +129,13 @@ std::string sanitize_config(const std::string& input) {
             sanitized += c;
         }
         // Remove all shell metacharacters and other dangerous characters
-        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' || 
-                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' || 
+        else if (c == ';' || c == '&' || c == '|' || c == '$' || c == '`' || c == '(' || c == ')' ||
+                 c == '<' || c == '>' || c == '\n' || c == '\r' || c == '\t' || c == '\\' ||
                  c == '"' || c == '\'' || c == '/' || c == '+' || c == '!') {
             continue;
         }
     }
-    
+
     return sanitized;
 }
 
@@ -159,6 +159,10 @@ bool check_command(const std::string& cmd) {
     return exec_status("command -v " + cmd + " >/dev/null 2>&1") == 0;
 }
 
+bool check_flatpak() {
+    return check_command("flatpak");
+}
+
 std::string get_home() {
     const char* home = getenv("HOME");
     return home ? home : "/root";
@@ -170,23 +174,46 @@ void send_notification(const std::string& msg) {
     }
 }
 
+std::string get_installed_flatpak_id(const std::string& pkg) {
+    if (!check_flatpak()) return "";
+
+    // Check installed flatpaks
+    std::string result = exec("flatpak list --app 2>/dev/null | grep -i '" + sanitize_package(pkg) + "' | head -1");
+
+    if (!result.empty()) {
+        // Parse the line to extract application ID (typically third column)
+        std::istringstream iss(result);
+        std::string name, description, app_id;
+        std::getline(iss, name, '\t');
+        std::getline(iss, description, '\t');
+        std::getline(iss, app_id, '\t');
+
+        app_id = trim(app_id);
+        if (!app_id.empty()) {
+            return sanitize_package(app_id);
+        }
+    }
+
+    return "";
+}
+
 std::string time_ago(const std::string& date_str) {
     time_t now = time(nullptr);
     struct tm tm_date = {};
-    
+
     if (strptime(date_str.c_str(), "%d %B %Y", &tm_date) ||
         strptime(date_str.c_str(), "%Y-%m-%d", &tm_date)) {
         time_t pkg_time = mktime(&tm_date);
         double diff = difftime(now, pkg_time);
         int days = diff / 86400;
-        
+
         if (days == 0) return "today";
         if (days == 1) return "1 day ago";
         if (days < 30) return std::to_string(days) + " days ago";
         if (days < 365) return std::to_string(days / 30) + " months ago";
         return std::to_string(days / 365) + " years ago";
     }
-    
+
     return "unknown";
 }
 
@@ -205,11 +232,11 @@ int parse_time_value(const std::string& val) {
 
 void load_config() {
     std::string config_path = get_home() + "/.config/rinse/rinse.conf";
-    
+
     if (!fs::exists(config_path)) {
         // Create config directory
         fs::create_directories(get_home() + "/.config/rinse");
-        
+
         // Try to download from GitHub
         std::string download_cmd = "curl -s https://raw.githubusercontent.com/Rousevv/rinse/main/rinse.conf -o " + config_path + " 2>/dev/null";
         if (exec_status(download_cmd) != 0) {
@@ -234,25 +261,25 @@ void load_config() {
             file.close();
         }
     }
-    
+
     std::ifstream file(config_path);
     std::string line;
-    
+
     while (std::getline(file, line)) {
         line = trim(line);
         if (line.empty() || line[0] == '#') continue;
-        
+
         size_t comment = line.find("//");
         if (comment != std::string::npos) {
             line = line.substr(0, comment);
             line = trim(line);
         }
-        
+
         size_t eq = line.find('=');
         if (eq != std::string::npos) {
             std::string key = trim(line.substr(0, eq));
             std::string val = trim(line.substr(eq + 1));
-            
+
             if (key == "keep_build") g_config.keep_build = (val == "true");
             else if (key == "notify") g_config.notify = (val == "true");
             else if (key == "auto_update") g_config.auto_update = (val == "true");
@@ -268,7 +295,7 @@ std::string get_package_date_pacman(const std::string& pkg) {
 }
 
 std::string get_package_date_aur(const std::string& pkg) {
-    std::string cmd = "curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) + 
+    std::string cmd = "curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) +
                      "' | grep -o '\"LastModified\":[0-9]*' | cut -d: -f2";
     std::string result = exec(cmd);
     if (!result.empty()) {
@@ -296,38 +323,34 @@ std::string fuzzy_search_package(const std::string& query) {
     std::string all_pkgs = exec("pacman -Q");
     std::istringstream iss(all_pkgs);
     std::string line;
-    
+
     std::vector<std::pair<std::string, int>> matches;
-    
+
     while (std::getline(iss, line)) {
         std::string pkg_name = line.substr(0, line.find(' '));
         std::string lower_pkg = pkg_name;
         std::string lower_query = query;
         std::transform(lower_pkg.begin(), lower_pkg.end(), lower_pkg.begin(), ::tolower);
         std::transform(lower_query.begin(), lower_query.end(), lower_query.begin(), ::tolower);
-        
+
         if (lower_pkg.find(lower_query) != std::string::npos) {
             int score = 100 - std::abs((int)lower_pkg.length() - (int)lower_query.length());
             matches.push_back({pkg_name, score});
         }
     }
-    
+
     if (!matches.empty()) {
-        std::sort(matches.begin(), matches.end(), 
+        std::sort(matches.begin(), matches.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
         return matches[0].first;
     }
-    
+
     return "";
 }
 
 bool package_in_aur(const std::string& pkg) {
-    return exec_status("curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) + 
+    return exec_status("curl -s 'https://aur.archlinux.org/rpc/?v=5&type=info&arg=" + sanitize_package(pkg) +
                       "' | grep -q '\"resultcount\":1'") == 0;
-}
-
-bool check_flatpak() {
-    return check_command("flatpak");
 }
 
 bool package_in_flatpak(const std::string& pkg) {
@@ -346,37 +369,43 @@ std::string get_flatpak_package_id(const std::string& pkg) {
     if (!check_flatpak()) return "";
     std::string result = exec("flatpak search " + sanitize_package(pkg) + " 2>/dev/null | head -2 | tail -1");
     if (result.empty() || result.find("No matches") != std::string::npos) return "";
-    
-    // Extract the package ID (first column, typically format: org.example.App)
+
+    // Extract the package ID (third column, typically format: org.example.App)
     std::istringstream iss(result);
-    std::string package_id;
-    iss >> package_id;
+    std::string name, description, package_id;
+
+    // Skip first two columns (name and description) to get to package ID
+    std::getline(iss, name, '\t');
+    std::getline(iss, description, '\t');
+    std::getline(iss, package_id, '\t');
+
+    package_id = trim(package_id);
+
     // Sanitize the package ID before returning it
     return sanitize_package(package_id);
 }
-
 bool confirm(const std::string& prompt, bool default_yes = true) {
     if (g_auto_confirm) return true;
-    
-    bool has_suffix = prompt.find("[Y/n]") != std::string::npos || 
+
+    bool has_suffix = prompt.find("[Y/n]") != std::string::npos ||
                       prompt.find("[y/N]") != std::string::npos;
-    
+
     if (has_suffix) {
         std::cout << prompt << " " << std::flush;
     } else {
         std::string suffix = default_yes ? " [Y/n] " : " [y/N] ";
         std::cout << prompt << suffix << std::flush;
     }
-    
+
     std::string response;
     std::getline(std::cin, response);
     response = trim(response);
-    
+
     if (response == "yes") {
         g_auto_confirm = true;
         return true;
     }
-    
+
     if (response.empty()) return default_yes;
     return (response[0] == 'y' || response[0] == 'Y');
 }
@@ -391,16 +420,16 @@ int get_terminal_width() {
 void draw_progress_bar(int percent, bool failed = false) {
     int width = get_terminal_width();
     int bar_width = width - 10;
-    
+
     if (bar_width < 20) bar_width = 20;
-    
+
     std::string center_text = failed ? "FAILED" : std::to_string(percent) + "%";
     int filled = failed ? bar_width : (percent * bar_width) / 100;
-    
+
     int center_pos = bar_width / 2 - center_text.length() / 2;
-    
+
     std::cout << "\r[";
-    
+
     for (int i = 0; i < bar_width; i++) {
         if (i >= center_pos && i < center_pos + (int)center_text.length()) {
             std::cout << (failed ? RED : RESET) << BOLD << center_text[i - center_pos] << RESET;
@@ -410,7 +439,7 @@ void draw_progress_bar(int percent, bool failed = false) {
             std::cout << RED << "-";
         }
     }
-    
+
     std::cout << RESET << "]" << std::flush;
 }
 
@@ -419,7 +448,7 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
         std::cout << YELLOW << "[DRY RUN] Would execute: " << RESET << cmd << "\n";
         return;
     }
-    
+
     if (g_full_log) {
         int status = system(cmd.c_str());
         if (status != 0) {
@@ -427,38 +456,38 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
         }
         return;
     }
-    
+
     // Pre-authenticate sudo to avoid password prompt during progress bar
     if (cmd.find("sudo") != std::string::npos) {
         system("sudo -v");
     }
-    
+
     std::atomic<bool> done(false);
     std::atomic<int> exit_code(0);
-    
+
     std::thread worker([&]() {
         std::string silent_cmd = cmd + " > /dev/null 2>&1";
         exit_code = system(silent_cmd.c_str());
         done = true;
     });
-    
+
     // Small delay to let sudo authenticate before showing progress
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
+
     int percent = 0;
     auto start = std::chrono::steady_clock::now();
-    
+
     while (!done) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
-        
+
         percent = std::min(95, (int)(elapsed * 95 / 10000));
         draw_progress_bar(percent);
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    
+
     worker.join();
-    
+
     if (exit_code != 0) {
         draw_progress_bar(100, true);
         std::cout << std::endl;
@@ -472,31 +501,31 @@ void show_progress(const std::string& cmd, const std::string& action = "Processi
 
 void ensure_yay() {
     if (check_command("yay")) return;
-    
+
     if (!confirm(YELLOW + std::string("yay (AUR frontend) not found. Install?") + RESET, true)) {
         std::cerr << RED << "Cannot install AUR packages without yay" << RESET << std::endl;
         exit(1);
     }
-    
+
     if (g_dry_run) {
         std::cout << YELLOW << "[DRY RUN] Would install yay" << RESET << std::endl;
         return;
     }
-    
+
     std::cout << CYAN << "Installing yay..." << RESET << std::endl;
     system("cd /tmp && git clone https://aur.archlinux.org/yay.git && cd yay && makepkg -si --noconfirm");
 }
 
 void install_packages(const std::vector<std::string>& pkgs) {
     std::vector<std::string> pacman_pkgs, aur_pkgs, flatpak_pkgs, not_found;
-    
+
     for (const auto& pkg : pkgs) {
         bool installed = is_installed(pkg);
         bool outdated = installed && is_outdated(pkg);
-        
+
         if (package_in_pacman(pkg)) {
             std::string date = get_package_date_pacman(pkg);
-            
+
             if (installed && !outdated) {
                 if (confirm(YELLOW + std::string("Package \"") + pkg + "\" already installed. Reinstall?" + RESET, false)) {
                     pacman_pkgs.push_back(pkg);
@@ -516,7 +545,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
             }
         } else if (package_in_aur(pkg)) {
             std::string date = get_package_date_aur(pkg);
-            
+
             if (installed && !outdated) {
                 if (confirm(YELLOW + std::string("Package \"") + pkg + "\" already installed. Reinstall?" + RESET, false)) {
                     aur_pkgs.push_back(pkg);
@@ -538,7 +567,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
             // Check for installed packages with fuzzy match
             std::string fuzzy = fuzzy_search_package(pkg);
             if (!fuzzy.empty() && is_installed(fuzzy)) {
-                std::cout << YELLOW << "Package \"" << pkg << "\" not found, but \"" << fuzzy 
+                std::cout << YELLOW << "Package \"" << pkg << "\" not found, but \"" << fuzzy
                          << "\" is already installed." << RESET << std::endl;
             } else {
                 // Check pacman repos for fuzzy match
@@ -548,7 +577,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
                     if (suggested.find('/') != std::string::npos) {
                         suggested = suggested.substr(suggested.find('/') + 1);
                     }
-                    std::cout << YELLOW << "Package \"" << pkg << "\" not found. Did you mean \"" 
+                    std::cout << YELLOW << "Package \"" << pkg << "\" not found. Did you mean \""
                              << suggested << "\"?" << RESET << std::endl;
                     if (confirm("Install \"" + suggested + "\" instead?", false)) {
                         pacman_pkgs.push_back(suggested);
@@ -559,7 +588,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
                     if (confirm("Search on Flatpak?", true)) {
                         if (check_flatpak()) {
                             std::string flatpak_results = search_flatpak(pkg);
-                            if (!flatpak_results.empty() && flatpak_results.find("No matches") == std::string::npos && 
+                            if (!flatpak_results.empty() && flatpak_results.find("No matches") == std::string::npos &&
                                 flatpak_results.find("Application") == std::string::npos) {
                                 std::cout << CYAN << "Found on Flatpak:" << RESET << std::endl;
                                 std::cout << flatpak_results << std::endl;
@@ -579,14 +608,14 @@ void install_packages(const std::vector<std::string>& pkgs) {
             }
         }
     }
-    
+
     if (!pacman_pkgs.empty()) {
         std::cout << CYAN << "\nInstalling from official repos..." << RESET << std::endl;
         std::string cmd = "sudo pacman -S --noconfirm";
         for (const auto& pkg : pacman_pkgs) cmd += " " + sanitize_package(pkg);
         show_progress(cmd, "Installing");
     }
-    
+
     if (!aur_pkgs.empty()) {
         ensure_yay();
         std::cout << CYAN << "\nInstalling from AUR..." << RESET << std::endl;
@@ -594,7 +623,7 @@ void install_packages(const std::vector<std::string>& pkgs) {
         for (const auto& pkg : aur_pkgs) cmd += " " + sanitize_package(pkg);
         show_progress(cmd, "Installing");
     }
-    
+
     if (!flatpak_pkgs.empty()) {
         if (!check_flatpak()) {
             std::cout << YELLOW << "\nFlatpak is not installed. Installing flatpak first..." << RESET << std::endl;
@@ -607,11 +636,11 @@ void install_packages(const std::vector<std::string>& pkgs) {
         }
         std::cout << CYAN << "\nInstalling from Flatpak..." << RESET << std::endl;
         for (const auto& pkg : flatpak_pkgs) {
-            std::string cmd = "flatpak install -y flathub " + sanitize_package(pkg);
+            std::string cmd = "flatpak install -y flathub " + sanitize_package(pkg) + " --user";
             show_progress(cmd, "Installing");
         }
     }
-    
+
     if (!pacman_pkgs.empty() || !aur_pkgs.empty() || !flatpak_pkgs.empty()) {
         std::cout << GREEN << "\n✓ Installation complete" << RESET << std::endl;
         send_notification("Package installation complete");
@@ -620,110 +649,162 @@ void install_packages(const std::vector<std::string>& pkgs) {
 
 void remove_package(const std::vector<std::string>& pkgs) {
     std::vector<std::string> to_remove;
-    
+    std::vector<std::string> flatpak_to_remove;
+
     for (const auto& pkg : pkgs) {
         if (!is_installed(pkg)) {
             std::string fuzzy = fuzzy_search_package(pkg);
             if (!fuzzy.empty()) {
-                std::cout << YELLOW << "Package \"" << pkg << "\" is not installed, but a package called \"" 
-                         << fuzzy << "\" is." << RESET << std::endl;
+                std::cout << YELLOW << "Package \"" << pkg << "\" is not installed, but a package called \""
+                << fuzzy << "\" is." << RESET << std::endl;
                 if (confirm("Did you mean \"" + fuzzy + "\"?", true)) {
                     to_remove.push_back(fuzzy);
                 }
             } else {
-                std::cerr << RED << "Package \"" << pkg << "\" is not installed" << RESET << std::endl;
+                // Check if it's a Flatpak app
+                std::string flatpak_id = get_installed_flatpak_id(pkg);
+                if (!flatpak_id.empty()) {
+                    std::cout << YELLOW << "Package \"" << pkg << "\" was not found as a package on your pc, but was found as a flatpak app ("
+                    << flatpak_id << ")." << RESET << std::endl;
+                    if (confirm("Remove " + sanitize_package(pkg) + "?", true)) {
+                        flatpak_to_remove.push_back(flatpak_id);
+                    }
+                } else {
+                    std::cerr << RED << "Package \"" << pkg << "\" is not installed" << RESET << std::endl;
+                }
             }
             continue;
         }
         to_remove.push_back(pkg);
     }
-    
-    if (to_remove.empty()) return;
-    
-    std::string pkg_list;
-    for (size_t i = 0; i < to_remove.size(); i++) {
-        pkg_list += to_remove[i];
-        if (i < to_remove.size() - 1) pkg_list += ", ";
-    }
-    
-    if (!confirm("Remove package" + std::string(to_remove.size() > 1 ? "s" : "") + " \"" + pkg_list + "\"?", true)) return;
-    
-    std::string orphans = exec("pacman -Qtdq 2>/dev/null");
-    bool remove_orphans = false;
-    
-    if (!orphans.empty()) {
-        remove_orphans = confirm("Remove orphan dependencies?", true);
-    }
-    
-    std::string cmd = "sudo pacman -R";
-    if (remove_orphans) cmd += "ns";
-    cmd += " --noconfirm";
-    for (const auto& pkg : to_remove) cmd += " " + sanitize_package(pkg);
-    
-    show_progress(cmd, "Removing");
-}
 
+    // Remove pacman packages
+    if (!to_remove.empty()) {
+        std::string pkg_list;
+        for (size_t i = 0; i < to_remove.size(); i++) {
+            pkg_list += to_remove[i];
+            if (i < to_remove.size() - 1) pkg_list += ", ";
+        }
+
+        if (!confirm("Remove package" + std::string(to_remove.size() > 1 ? "s" : "") + " \"" + pkg_list + "\"?", true)) return;
+
+        std::string orphans = exec("pacman -Qtdq 2>/dev/null");
+        bool remove_orphans = false;
+
+        if (!orphans.empty()) {
+            remove_orphans = confirm("Remove orphan dependencies?", true);
+        }
+
+        std::string cmd = "sudo pacman -R";
+        if (remove_orphans) cmd += "ns";
+        cmd += " --noconfirm";
+        for (const auto& pkg : to_remove) cmd += " " + sanitize_package(pkg);
+
+        show_progress(cmd, "Removing");
+    }
+
+    // Remove Flatpak apps
+    if (!flatpak_to_remove.empty()) {
+        std::cout << CYAN << "\nRemoving Flatpak apps..." << RESET << std::endl;
+        for (const auto& pkg : flatpak_to_remove) {
+            std::string cmd = "flatpak uninstall -y " + sanitize_package(pkg);
+            show_progress(cmd, "Removing");
+        }
+    }
+
+    if (!to_remove.empty() || !flatpak_to_remove.empty()) {
+        std::cout << GREEN << "\n✓ Removal complete" << RESET << std::endl;
+        send_notification("Package removal complete");
+    }
+}
 void update_rinse() {
     if (!g_config.auto_update) return;
-    
+
     std::string rinse_path = trim(exec("command -v rinse 2>/dev/null"));
     if (rinse_path.empty()) return;
-    
-    if (exec("git -C /tmp ls-remote https://github.com/Rousevv/rinse 2>/dev/null").empty()) return;
-    
-    std::cout << CYAN << "Checking for rinse updates..." << RESET << std::endl;
-    
-    std::string temp_dir = "/tmp/rinse-update-" + std::to_string(time(nullptr));
+
+    std::cout << CYAN << "Checking for rinse updates..." << RESET << std::flush;
+
+    // Get remote latest commit hash (fast, no cloning)
     std::string branch = sanitize_config(g_config.update_branch);
+    std::string remote_hash = trim(exec("git ls-remote https://github.com/Rousevv/rinse refs/heads/" + branch + " 2>/dev/null | cut -f1"));
+
+    if (remote_hash.empty() || remote_hash.length() < 7) {
+        std::cout << "\r" << YELLOW << "Could not check for updates" << RESET << std::string(30, ' ') << std::endl;
+        return;
+    }
+
+    // Check if we have a stored version
+    std::string version_file = get_home() + "/.config/rinse/.version";
+    std::string local_hash = "";
+
+    if (fs::exists(version_file)) {
+        std::ifstream vf(version_file);
+        std::getline(vf, local_hash);
+        local_hash = trim(local_hash);
+    }
+
+    // Compare first 7 chars of commit hash
+    std::string remote_short = remote_hash.substr(0, 7);
+    std::string local_short = local_hash.length() >= 7 ? local_hash.substr(0, 7) : "";
+
+    if (remote_short == local_short && !local_short.empty()) {
+        std::cout << "\r" << GREEN << "✓ rinse is up to date" << RESET << std::string(30, ' ') << std::endl;
+        return;
+    }
+
+    std::cout << "\r" << std::string(50, ' ') << "\r";  // Clear line
+
+    if (!confirm("rinse update available (" + remote_short + "). Install?", true)) return;
+
+    // Now clone and install
+    std::string temp_dir = "/tmp/rinse-update-" + std::to_string(time(nullptr));
     std::string clone_cmd = "git clone --depth 1 --branch " + branch + " https://github.com/Rousevv/rinse " + sanitize_path(temp_dir) + " >/dev/null 2>&1";
-    
-    if (exec_status(clone_cmd) != 0) return;
-    
+
+    if (exec_status(clone_cmd) != 0) {
+        std::cerr << RED << "✗ Failed to download update" << RESET << std::endl;
+        return;
+    }
+
     std::string source_file;
-    if (fs::exists(temp_dir + "/rinse_latest.cpp")) source_file = temp_dir + "/rinse_latest.cpp";
-    else if (fs::exists(temp_dir + "/rinse.cpp")) source_file = temp_dir + "/rinse.cpp";
+    if (fs::exists(temp_dir + "/rinse.cpp")) source_file = temp_dir + "/rinse.cpp";
     else {
         exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
+        std::cerr << RED << "✗ Source file not found" << RESET << std::endl;
         return;
     }
-    
-    if (exec_status("g++ -std=c++17 -O3 " + sanitize_path(source_file) + " -o " + sanitize_path(temp_dir) + "/rinse 2>/dev/null") != 0) {
+
+    std::cout << CYAN << "Building update..." << RESET << std::endl;
+    if (exec_status(("g++ -std=c++17 -O3 " + sanitize_path(source_file) + " -o " + sanitize_path(temp_dir) + "/rinse 2>/dev/null").c_str()) != 0) {
         exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
+        std::cerr << RED << "✗ Build failed" << RESET << std::endl;
         return;
     }
-    
-    std::string old_hash = trim(exec("md5sum " + sanitize_path(rinse_path) + " 2>/dev/null | cut -d' ' -f1"));
-    std::string new_hash = trim(exec("md5sum " + sanitize_path(temp_dir) + "/rinse 2>/dev/null | cut -d' ' -f1"));
-    
-    if (old_hash == new_hash) {
-        std::cout << GREEN << "✓ rinse is up to date" << RESET << std::endl;
-        exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
-        return;
+
+    if (exec_status(("sudo cp " + sanitize_path(temp_dir) + "/rinse " + sanitize_path(rinse_path) + " && sudo chmod +x " + sanitize_path(rinse_path)).c_str()) == 0) {
+        // Save the new version hash
+        std::ofstream vf(version_file);
+        vf << remote_hash;
+        vf.close();
+
+        std::cout << GREEN << "✓ rinse updated successfully" << RESET << std::endl;
+        send_notification("rinse updated to latest version");
+    } else {
+        std::cerr << RED << "✗ Failed to install update" << RESET << std::endl;
     }
-    
-    if (!g_dry_run && confirm("rinse update available. Install?", true)) {
-        if (exec_status(("sudo cp " + sanitize_path(temp_dir) + "/rinse " + sanitize_path(rinse_path) + " && sudo chmod +x " + sanitize_path(rinse_path)).c_str()) == 0) {
-            std::cout << GREEN << "✓ rinse updated successfully" << RESET << std::endl;
-            send_notification("rinse updated to latest version");
-        } else {
-            std::cout << RED << "✗ Failed to update rinse" << RESET << std::endl;
-        }
-    } else if (g_dry_run) {
-        std::cout << YELLOW << "[DRY RUN] Would update rinse" << RESET << std::endl;
-    }
-    
+
     exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
 }
 
 void update_system() {
     update_rinse();
-    
+
     std::string outdated = exec("pacman -Qu 2>/dev/null");
     if (outdated.empty()) {
         std::cout << GREEN << "✓ System is up to date" << RESET << std::endl;
         return;
     }
-    
+
     std::vector<std::string> pkgs;
     std::istringstream iss(outdated);
     std::string line;
@@ -732,20 +813,20 @@ void update_system() {
             pkgs.push_back(line.substr(0, line.find(' ')));
         }
     }
-    
-    std::cout << YELLOW << "Found " << pkgs.size() << " outdated package" 
+
+    std::cout << YELLOW << "Found " << pkgs.size() << " outdated package"
               << (pkgs.size() == 1 ? "" : "s") << RESET << std::endl;
-    
+
     if (!confirm("Update all?", true)) return;
-    
+
     std::cout << CYAN << "\nUpdating official packages..." << RESET << std::endl;
     show_progress("sudo pacman -Syu --noconfirm", "Updating");
-    
+
     if (check_command("yay")) {
         std::cout << CYAN << "Updating AUR packages..." << RESET << std::endl;
         show_progress("yay -Syu --noconfirm", "Updating");
     }
-    
+
     std::cout << GREEN << "\n✓ Update complete" << RESET << std::endl;
     send_notification("System update complete");
 }
@@ -763,23 +844,23 @@ void lookup_packages(const std::vector<std::string>& search_terms = {}) {
         std::string all_pkgs = exec("pacman -Q");
         std::istringstream iss(all_pkgs);
         std::string line;
-        
+
         while (std::getline(iss, line)) {
             std::string pkg_name = line.substr(0, line.find(' '));
-            
+
             for (const auto& term : search_terms) {
                 std::string lower_pkg = pkg_name;
                 std::string lower_term = term;
                 std::transform(lower_pkg.begin(), lower_pkg.end(), lower_pkg.begin(), ::tolower);
                 std::transform(lower_term.begin(), lower_term.end(), lower_term.begin(), ::tolower);
-                
+
                 if (lower_pkg.find(lower_term) != std::string::npos) {
                     found.push_back(line);
                     break;
                 }
             }
         }
-        
+
         if (found.empty()) {
             std::cout << YELLOW << "No installed packages matching: ";
             for (size_t i = 0; i < search_terms.size(); i++) {
@@ -788,7 +869,7 @@ void lookup_packages(const std::vector<std::string>& search_terms = {}) {
             }
             std::cout << RESET << std::endl;
         } else {
-            std::cout << GREEN << "Found " << found.size() << " package" 
+            std::cout << GREEN << "Found " << found.size() << " package"
                       << (found.size() == 1 ? "" : "s") << ":" << RESET << std::endl;
             for (const auto& pkg : found) {
                 std::cout << "  " << pkg << std::endl;
@@ -800,12 +881,12 @@ void lookup_packages(const std::vector<std::string>& search_terms = {}) {
 void clean_cache() {
     std::cout << CYAN << "Cleaning package cache..." << RESET << std::endl;
     show_progress("sudo pacman -Sc --noconfirm", "Cleaning");
-    
+
     if (check_command("yay")) {
         std::cout << CYAN << "Cleaning AUR cache..." << RESET << std::endl;
         show_progress("yay -Sc --noconfirm", "Cleaning");
     }
-    
+
     std::string orphans = exec("pacman -Qtdq 2>/dev/null");
     if (!orphans.empty() && confirm("Remove orphan packages?", true)) {
         std::cout << CYAN << "Removing orphan packages..." << RESET << std::endl;
@@ -813,7 +894,7 @@ void clean_cache() {
     } else if (orphans.empty()) {
         std::cout << GREEN << "No orphan packages found" << RESET << std::endl;
     }
-    
+
     std::cout << GREEN << "\n✓ Cache cleanup complete" << RESET << std::endl;
 }
 
@@ -822,47 +903,47 @@ void install_file(const std::string& filepath) {
         std::cerr << RED << "File not found: " << filepath << RESET << std::endl;
         return;
     }
-    
+
     fs::path path(filepath);
     std::string abs_path = fs::absolute(path);
-    
+
     if (!confirm("Installing from " + abs_path, true)) return;
-    
+
     if (path.extension() == ".zst" || path.string().find(".pkg.tar") != std::string::npos) {
         show_progress("sudo pacman -U " + sanitize_path(abs_path), "Installing");
         std::cout << GREEN << "✓ Installation complete" << RESET << std::endl;
     } else if (path.extension() == ".gz" && path.string().find(".tar.gz") != std::string::npos) {
         std::string name = sanitize_path(path.stem().stem().string());
         std::string temp_dir = "/tmp/rinse-build-" + name;
-        
+
         if (g_dry_run) {
             std::cout << YELLOW << "[DRY RUN] Would extract and build from " << abs_path << RESET << std::endl;
             return;
         }
-        
+
         std::cout << CYAN << "Extracting source archive..." << RESET << std::endl;
-        
+
         if (exec_status(("mkdir -p " + sanitize_path(temp_dir) + " && tar -xzf " + sanitize_path(abs_path) + " -C " + sanitize_path(temp_dir)).c_str()) != 0) {
             std::cerr << RED << "✗ Failed to extract archive" << RESET << std::endl;
             return;
         }
-        
+
         std::string source_dir = temp_dir;
         std::string found_dir = trim(exec("find " + sanitize_path(temp_dir) + " -maxdepth 1 -type d | tail -1"));
         if (!found_dir.empty() && found_dir != temp_dir) {
             source_dir = found_dir;
         }
-        
+
         std::cout << CYAN << "Building from source..." << RESET << std::endl;
         std::cout << YELLOW << "Note: This may take a while. Use --full-log to see build output." << RESET << std::endl;
-        
+
         bool built = false;
-        
+
         if (fs::exists(source_dir + "/CMakeLists.txt")) {
             std::cout << CYAN << "Detected CMake project" << RESET << std::endl;
             std::string cmake_cmd = "cd " + sanitize_path(source_dir) + " && mkdir -p build && cd build && cmake .. && make -j$(nproc)";
             built = (exec_status((g_full_log ? cmake_cmd : cmake_cmd + " > /dev/null 2>&1").c_str()) == 0);
-            
+
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
                 if (exec_status(("cd " + sanitize_path(source_dir) + "/build && sudo make install").c_str()) == 0) {
@@ -875,7 +956,7 @@ void install_file(const std::string& filepath) {
             std::cout << CYAN << "Detected autotools project" << RESET << std::endl;
             std::string build_cmd = "cd " + sanitize_path(source_dir) + " && ./configure && make -j$(nproc)";
             built = (exec_status((g_full_log ? build_cmd : build_cmd + " > /dev/null 2>&1").c_str()) == 0);
-            
+
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
                 if (exec_status(("cd " + sanitize_path(source_dir) + " && sudo make install").c_str()) == 0) {
@@ -886,7 +967,7 @@ void install_file(const std::string& filepath) {
             std::cout << CYAN << "Detected Makefile project" << RESET << std::endl;
             std::string build_cmd = "cd " + sanitize_path(source_dir) + " && make -j$(nproc)";
             built = (exec_status((g_full_log ? build_cmd : build_cmd + " > /dev/null 2>&1").c_str()) == 0);
-            
+
             if (built) {
                 std::cout << CYAN << "Installing built files..." << RESET << std::endl;
                 exec_status(("cd " + sanitize_path(source_dir) + " && sudo make install").c_str());
@@ -899,13 +980,13 @@ void install_file(const std::string& filepath) {
                 std::cout << GREEN << "✓ Extracted to " << dest << RESET << std::endl;
             }
         }
-        
-        if (!built && (fs::exists(source_dir + "/CMakeLists.txt") || fs::exists(source_dir + "/configure") || 
+
+        if (!built && (fs::exists(source_dir + "/CMakeLists.txt") || fs::exists(source_dir + "/configure") ||
                        fs::exists(source_dir + "/Makefile"))) {
             std::cerr << RED << "✗ Build failed" << RESET << std::endl;
             std::cerr << "Try --full-log or build manually in: " << source_dir << std::endl;
         }
-        
+
         if (!g_keep && !g_config.keep_build) {
             exec_status(("rm -rf " + sanitize_path(temp_dir)).c_str());
         } else {
@@ -919,20 +1000,20 @@ void install_file(const std::string& filepath) {
 void show_outdated(const std::string& time_val) {
     int days = parse_time_value(time_val);
     std::cout << CYAN << "Finding packages not updated in " << days << " days..." << RESET << std::endl;
-    
+
     std::string installed = exec("pacman -Q");
     std::istringstream iss(installed);
     std::string line;
-    
+
     time_t now = time(nullptr);
     time_t threshold = now - (days * 86400);
-    
+
     std::vector<std::string> outdated_pkgs;
-    
+
     while (std::getline(iss, line)) {
         std::string pkg = line.substr(0, line.find(' '));
         std::string date = get_package_date_pacman(pkg);
-        
+
         if (!date.empty()) {
             struct tm tm_date = {};
             if (strptime(date.c_str(), "%d %B %Y", &tm_date) || strptime(date.c_str(), "%Y-%m-%d", &tm_date)) {
@@ -943,7 +1024,7 @@ void show_outdated(const std::string& time_val) {
             }
         }
     }
-    
+
     if (outdated_pkgs.empty()) {
         std::cout << GREEN << "No packages found" << RESET << std::endl;
     } else {
@@ -957,34 +1038,34 @@ void show_outdated(const std::string& time_val) {
 void print_help() {
     std::cout << BOLD << "rinse" << RESET << " - Fast CLI frontend for pacman and AUR\n";
     std::cout << CYAN << "Version 1.0" << RESET << "\n\n";
-    
+
     std::cout << BOLD << "USAGE:\n" << RESET;
     std::cout << "  rinse <package>...           Install one or more packages\n";
     std::cout << "  rinse <command> [options]    Run a specific command\n\n";
-    
+
     std::cout << BOLD << "INSTALL COMMANDS:\n" << RESET;
     std::cout << "  rinse <pkg>...               Install packages from pacman or AUR\n";
     std::cout << "  rinse install <pkg>...       Same as above (explicit)\n";
     std::cout << "  rinse -S <pkg>...            pacman-style install\n";
     std::cout << "  rinse <file>                 Install from .pkg.tar.zst or .tar.gz file\n\n";
-    
+
     std::cout << BOLD << "PACKAGE MANAGEMENT:\n" << RESET;
     std::cout << "  rinse update                 Update all packages (pacman + AUR)\n";
     std::cout << "  rinse upgrade                Alias for update\n";
     std::cout << "  rinse new                    Alias for update\n";
     std::cout << "  rinse -Syu                   pacman-style update\n";
     std::cout << "  rinse -Syyu                  Force database refresh + update\n\n";
-    
+
     std::cout << "  rinse remove <pkg>...        Remove one or more packages\n";
     std::cout << "  rinse uninstall <pkg>...     Alias for remove\n";
     std::cout << "  rinse rem <pkg>...           Alias for remove\n";
     std::cout << "  rinse -R <pkg>...            pacman-style remove\n";
     std::cout << "  rinse -Rs <pkg>...           Remove with dependencies\n\n";
-    
+
     std::cout << "  rinse clean                  Clean package cache and remove orphans\n";
     std::cout << "  rinse -Sc                    pacman-style cache clean\n";
     std::cout << "  rinse outdated               Show packages not updated recently\n\n";
-    
+
     std::cout << BOLD << "QUERY COMMANDS:\n" << RESET;
     std::cout << "  rinse lookup [term]...       List/search installed packages\n";
     std::cout << "  rinse check [term]...        Alias for lookup\n";
@@ -992,7 +1073,7 @@ void print_help() {
     std::cout << "  rinse search [term]...       Alias for lookup\n";
     std::cout << "  rinse -Q [term]...           pacman-style query\n";
     std::cout << "  rinse -Qs <term>...          pacman-style search installed\n\n";
-    
+
     std::cout << BOLD << "FLAGS:\n" << RESET;
     std::cout << "  --dry-run, -n, dry           Show what would be done without doing it\n";
     std::cout << "  -y, --yes                    Auto-confirm all prompts (skip confirmations)\n";
@@ -1001,7 +1082,7 @@ void print_help() {
     std::cout << "                               Examples: 5d (days), 3m (months), 2y (years)\n";
     std::cout << "  --full-log                   Show complete installation output\n";
     std::cout << "  -h, --help, -help, --h       Show this help message\n\n";
-    
+
     std::cout << BOLD << "EXAMPLES:\n" << RESET;
     std::cout << "  rinse firefox                Install Firefox\n";
     std::cout << "  rinse -y firefox discord     Install multiple packages (auto-confirm)\n";
@@ -1012,14 +1093,14 @@ void print_help() {
     std::cout << "  rinse -n firefox             Dry run installation\n";
     std::cout << "  rinse ./package.pkg.tar.zst  Install from local file\n";
     std::cout << "  rinse clean -y               Clean cache (auto-confirm)\n\n";
-    
+
     std::cout << BOLD << "TIPS:\n" << RESET;
     std::cout << "  • Type 'yes' during prompts to auto-confirm remaining operations\n";
     std::cout << "  • Use -y flag to skip all confirmations: rinse -y update\n";
     std::cout << "  • Fuzzy search suggests similar packages when not found\n";
     std::cout << "  • Progress bars show red 'FAILED' text when operations fail\n";
     std::cout << "  • Config file: ~/.config/rinse/rinse.conf\n\n";
-    
+
     std::cout << BOLD << "CONFIGURATION:\n" << RESET;
     std::cout << "  Config file: " << CYAN << "~/.config/rinse/rinse.conf" << RESET << "\n";
     std::cout << "  Options:\n";
@@ -1028,7 +1109,7 @@ void print_help() {
     std::cout << "    auto_update = true|false          Auto-check for rinse updates (default: true)\n";
     std::cout << "    update_branch = main|experimental Update branch (default: main)\n";
     std::cout << "    outdated_time = 6m                Default threshold for outdated command\n\n";
-    
+
     std::cout << BOLD << "BEHAVIOR:\n" << RESET;
     std::cout << "  • Packages are checked in pacman first, then AUR\n";
     std::cout << "  • Official packages are installed before AUR packages\n";
@@ -1036,7 +1117,7 @@ void print_help() {
     std::cout << "  • yay is auto-installed if needed for AUR packages\n";
     std::cout << "  • Desktop notifications sent when notify=true in config\n";
     std::cout << "  • Sudo password requested once, then cached for operations\n\n";
-    
+
     std::cout << BOLD << "SOURCE & ISSUES:\n" << RESET;
     std::cout << "  GitHub: " << CYAN << "https://github.com/Rousevv/rinse" << RESET << "\n";
 }
@@ -1047,20 +1128,20 @@ int main(int argc, char* argv[]) {
         std::cout << YELLOW << "Warning: rinse isn't meant to be run as sudo!" << RESET << std::endl;
         std::cout << "Continuing anyway...\n" << std::endl;
     }
-    
+
     if (argc < 2) {
         print_help();
         return 0;
     }
-    
+
     load_config();
-    
+
     std::vector<std::string> args;
     std::string time_override = "";
-    
+
             for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        
+
         if (arg == "--dry-run" || arg == "-n" || arg == "dry") {
             g_dry_run = true;
         } else if (arg == "-k" || arg == "--keep") {
@@ -1078,14 +1159,14 @@ int main(int argc, char* argv[]) {
             args.push_back(arg);
         }
     }
-    
+
     if (args.empty()) {
         print_help();
         return 0;
     }
-    
+
     std::string cmd = args[0];
-    
+
     if (cmd == "install" || cmd == "-S") {
         if (args.size() > 1) {
             install_packages(std::vector<std::string>(args.begin() + 1, args.end()));
@@ -1109,15 +1190,15 @@ int main(int argc, char* argv[]) {
         install_file(cmd);
     } else {
         bool looks_like_command = (cmd.find('-') == 0 || cmd.length() <= 3);
-        
+
         if (looks_like_command && args.size() == 1) {
             std::cerr << RED << "Error: Unrecognized command '" << cmd << "'\n" << RESET;
             std::cerr << "Try 'rinse --help'\n";
             return 1;
         }
-        
+
         install_packages(args);
     }
-    
+
     return 0;
 }
